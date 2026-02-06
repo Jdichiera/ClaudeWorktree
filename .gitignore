@@ -1,19 +1,41 @@
-# Xcode
-.build/
-DerivedData/
-*.xcuserstate
-*.xcworkspace/xcuserdata/
-*.xcodeproj/xcuserdata/
-*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+# Dependencies
+node_modules/
 
-# Swift Package Manager
-.swiftpm/
-Package.resolved
+# Build output
+out/
+dist/
 
-# macOS
-.DS_Store
+# Test output
+coverage/
+playwright-report/
+test-results/
+
+# IDE
+.idea/
+.vscode/
 *.swp
-*~
+*.swo
 
-# Test artifacts
-/tmp/
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Electron
+release/
+
+# TypeScript
+*.tsbuildinfo
+
+# Swift legacy
+swift-legacy/.build/
+swift-legacy/DerivedData/
+swift-legacy/*.xcuserstate

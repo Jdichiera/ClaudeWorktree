@@ -10,15 +10,22 @@ struct SwiftTermView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let container = TerminalContainerNSView()
         container.setup(session: session, onClaudeError: onClaudeError)
+        container.setVisible(isVisible)
         context.coordinator.container = container
         context.coordinator.wasEverVisible = false
         return container
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        // Only trigger refresh when switching FROM hidden TO visible (not on first show)
+        guard let container = nsView as? TerminalContainerNSView else { return }
+
+        // Update visibility state
+        container.setVisible(isVisible)
+
+        // Trigger refresh when switching FROM hidden TO visible (not on first show)
         if isVisible && context.coordinator.wasEverVisible && !context.coordinator.isCurrentlyVisible {
-            if let container = nsView as? TerminalContainerNSView {
+            // Delay refresh slightly to allow layout to settle after becoming visible
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 container.refreshTerminal()
             }
         }
@@ -44,6 +51,8 @@ class TerminalContainerNSView: NSView {
     private var terminalView: LocalProcessTerminalView?
     private var statusDetector = StatusDetector()
     private var hasStartedProcess = false
+    private var isVisible = false
+    private var isInWindow = false
     private weak var session: ClaudeSession?
     private var onClaudeError: ((String) -> Void)?
 
@@ -70,8 +79,33 @@ class TerminalContainerNSView: NSView {
         self.terminalView = terminal
     }
 
+    func setVisible(_ visible: Bool) {
+        let wasVisible = isVisible
+        isVisible = visible
+        // Try to start process when becoming visible for the first time
+        if visible && isInWindow && !hasStartedProcess {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.startClaudeProcess()
+            }
+        }
+        // Focus terminal when becoming visible
+        if visible && !wasVisible {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.focusTerminal()
+            }
+        }
+    }
+
+    func focusTerminal() {
+        guard let terminalView = terminalView, let window = window else { return }
+        window.makeFirstResponder(terminalView)
+    }
+
     func refreshTerminal() {
         guard let terminalView = terminalView, hasStartedProcess else { return }
+
+        // Force layout update first
+        terminalView.layoutSubtreeIfNeeded()
 
         // Force terminal to redraw
         terminalView.setNeedsDisplay(terminalView.bounds)
@@ -83,12 +117,18 @@ class TerminalContainerNSView: NSView {
         if cols > 0 && rows > 0 {
             terminal.resize(cols: cols, rows: rows)
         }
+
+        // Send Ctrl+L (form feed) to trigger a full screen redraw in the shell
+        // ASCII 12 is the form feed character (Ctrl+L)
+        let ctrlL: [UInt8] = [12]
+        terminalView.send(ctrlL)
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // Start process once we're in a window and have valid dimensions
-        if window != nil && !hasStartedProcess {
+        isInWindow = (window != nil)
+        // Only start process if we're visible AND in a window
+        if isInWindow && isVisible && !hasStartedProcess {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 self?.startClaudeProcess()
             }
@@ -98,7 +138,8 @@ class TerminalContainerNSView: NSView {
     private func startClaudeProcess() {
         guard let terminalView = terminalView,
               let session = session,
-              !hasStartedProcess else { return }
+              !hasStartedProcess,
+              isVisible else { return }
 
         // Make sure we have valid dimensions
         guard bounds.width > 0 && bounds.height > 0 else {
@@ -130,6 +171,11 @@ class TerminalContainerNSView: NSView {
             environment: command.env.map { "\($0)=\($1)" },
             execName: "claude"
         )
+
+        // Focus the terminal after starting
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.focusTerminal()
+        }
 
         Task { @MainActor in
             session.markTerminalReady()

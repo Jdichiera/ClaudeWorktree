@@ -68,6 +68,9 @@ class ClaudeProcessManager {
             env["PATH"] = defaultPath
         }
 
+        // Set TERM for proper terminal emulation
+        env["TERM"] = "xterm-256color"
+
         return env
     }
 

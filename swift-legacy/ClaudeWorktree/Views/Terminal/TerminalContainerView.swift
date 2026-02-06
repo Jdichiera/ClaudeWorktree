@@ -61,6 +61,14 @@ struct TerminalContainerView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(alignment: .bottom) {
+            // Focus indicator line at bottom of header
+            if isVisible {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+        }
     }
 
     private func copyPath() {
