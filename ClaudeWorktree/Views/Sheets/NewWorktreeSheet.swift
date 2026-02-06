@@ -11,12 +11,21 @@ struct NewWorktreeSheet: View {
 
     private let gitService = GitWorktreeService()
 
+    var selectedRepo: Repository? {
+        appState.selectedRepository ?? appState.repositories.first
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
 
             Form {
                 Section {
+                    if appState.repositories.count > 1 {
+                        Text("Repository: \(selectedRepo?.displayName ?? "None")")
+                            .foregroundColor(.secondary)
+                    }
+
                     TextField("Branch Name", text: $branchName)
                         .textFieldStyle(.roundedBorder)
 
@@ -37,7 +46,7 @@ struct NewWorktreeSheet: View {
 
             footer
         }
-        .frame(width: 400, height: 280)
+        .frame(width: 400, height: 300)
         .task {
             await loadBranches()
         }
@@ -77,17 +86,17 @@ struct NewWorktreeSheet: View {
                 createWorktree()
             }
             .keyboardShortcut(.defaultAction)
-            .disabled(branchName.isEmpty || isLoading)
+            .disabled(branchName.isEmpty || isLoading || selectedRepo == nil)
         }
         .padding()
     }
 
     private func loadBranches() async {
-        guard let repoPath = appState.repositoryPath else { return }
+        guard let repo = selectedRepo else { return }
 
         do {
-            availableBranches = try await gitService.listBranches(in: repoPath)
-            if let currentBranch = try? await gitService.getCurrentBranch(in: repoPath),
+            availableBranches = try await gitService.listBranches(in: repo.path)
+            if let currentBranch = try? await gitService.getCurrentBranch(in: repo.path),
                !currentBranch.isEmpty {
                 baseBranch = currentBranch
             }
@@ -97,7 +106,7 @@ struct NewWorktreeSheet: View {
     }
 
     private func createWorktree() {
-        guard !branchName.isEmpty else { return }
+        guard !branchName.isEmpty, let repo = selectedRepo else { return }
 
         isLoading = true
 
@@ -107,6 +116,7 @@ struct NewWorktreeSheet: View {
 
         Task {
             await appState.addWorktree(
+                to: repo,
                 branch: sanitizedBranch,
                 baseBranch: baseBranch.isEmpty ? nil : baseBranch
             )

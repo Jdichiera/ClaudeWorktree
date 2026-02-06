@@ -29,10 +29,9 @@ struct DetailView: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
-        if appState.repositoryPath == nil {
+        if appState.repositories.isEmpty {
             WelcomeView()
-        } else if !appState.worktrees.isEmpty {
-            // Use TerminalStackView to keep all terminals alive
+        } else if !appState.allWorktrees.isEmpty {
             TerminalStackView()
         } else {
             Text("Select a worktree from the sidebar")
@@ -84,7 +83,7 @@ struct WelcomeView: View {
 
         if panel.runModal() == .OK, let url = panel.url {
             Task {
-                await appState.setRepository(path: url.path)
+                await appState.addRepository(path: url.path)
             }
         }
     }

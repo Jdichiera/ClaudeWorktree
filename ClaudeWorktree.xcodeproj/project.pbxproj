@@ -23,6 +23,7 @@
 		A1000014 /* ClaudeProcessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000014 /* ClaudeProcessManager.swift */; };
 		A1000015 /* StatusDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000015 /* StatusDetector.swift */; };
 		A1000016 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = A3000001 /* SwiftTerm */; };
+		A1000017 /* Repository.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018 /* Repository.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +44,7 @@
 		A2000015 /* StatusDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusDetector.swift; sourceTree = "<group>"; };
 		A2000016 /* ClaudeWorktree.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClaudeWorktree.entitlements; sourceTree = "<group>"; };
 		A2000017 /* ClaudeWorktree.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeWorktree.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A2000018 /* Repository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Repository.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -92,6 +94,7 @@
 				A2000003 /* SessionStatus.swift */,
 				A2000004 /* Worktree.swift */,
 				A2000005 /* ClaudeSession.swift */,
+				A2000018 /* Repository.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -238,6 +241,7 @@
 				A1000013 /* GitWorktreeService.swift in Sources */,
 				A1000014 /* ClaudeProcessManager.swift in Sources */,
 				A1000015 /* StatusDetector.swift in Sources */,
+				A1000017 /* Repository.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

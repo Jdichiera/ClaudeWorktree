@@ -15,7 +15,7 @@ struct ClaudeWorktreeApp: App {
                     appState.showNewWorktreeSheet = true
                 }
                 .keyboardShortcut("n", modifiers: [.command])
-                .disabled(appState.repositoryPath == nil)
+                .disabled(appState.repositories.isEmpty)
 
                 Divider()
 
@@ -24,13 +24,13 @@ struct ClaudeWorktreeApp: App {
                 }
                 .keyboardShortcut("o", modifiers: [.command])
 
-                Button("Refresh Worktrees") {
+                Button("Refresh All") {
                     Task {
-                        await appState.loadWorktrees()
+                        await appState.refreshAllRepositories()
                     }
                 }
                 .keyboardShortcut("r", modifiers: [.command])
-                .disabled(appState.repositoryPath == nil)
+                .disabled(appState.repositories.isEmpty)
             }
         }
     }
@@ -45,7 +45,7 @@ struct ClaudeWorktreeApp: App {
 
         if panel.runModal() == .OK, let url = panel.url {
             Task {
-                await appState.setRepository(path: url.path)
+                await appState.addRepository(path: url.path)
             }
         }
     }

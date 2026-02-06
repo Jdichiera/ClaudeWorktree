@@ -74,8 +74,8 @@ struct TerminalStackView: View {
 
     var body: some View {
         ZStack {
-            // Create a terminal for each worktree, all stacked
-            ForEach(appState.worktrees) { worktree in
+            // Create a terminal for each worktree across all repositories
+            ForEach(appState.allWorktrees) { worktree in
                 let session = appState.sessionFor(worktree)
                 TerminalContainerView(session: session)
                     .opacity(appState.selectedWorktreeId == worktree.id ? 1 : 0)
