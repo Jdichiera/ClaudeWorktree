@@ -10,14 +10,32 @@ struct SwiftTermView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let container = TerminalContainerNSView()
         container.setup(session: session, onClaudeError: onClaudeError)
+        context.coordinator.container = container
+        context.coordinator.wasEverVisible = false
         return container
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        // Trigger redraw when becoming visible
-        if let container = nsView as? TerminalContainerNSView {
-            container.setVisible(isVisible)
+        // Only trigger refresh when switching FROM hidden TO visible (not on first show)
+        if isVisible && context.coordinator.wasEverVisible && !context.coordinator.isCurrentlyVisible {
+            if let container = nsView as? TerminalContainerNSView {
+                container.refreshTerminal()
+            }
         }
+        context.coordinator.isCurrentlyVisible = isVisible
+        if isVisible {
+            context.coordinator.wasEverVisible = true
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    class Coordinator {
+        weak var container: TerminalContainerNSView?
+        var wasEverVisible = false
+        var isCurrentlyVisible = false
     }
 }
 
@@ -28,7 +46,6 @@ class TerminalContainerNSView: NSView {
     private var hasStartedProcess = false
     private weak var session: ClaudeSession?
     private var onClaudeError: ((String) -> Void)?
-    private var isCurrentlyVisible = false
 
     func setup(session: ClaudeSession, onClaudeError: ((String) -> Void)?) {
         self.session = session
@@ -53,31 +70,17 @@ class TerminalContainerNSView: NSView {
         self.terminalView = terminal
     }
 
-    func setVisible(_ visible: Bool) {
-        let wasHidden = !isCurrentlyVisible
-        isCurrentlyVisible = visible
-
-        if visible && wasHidden {
-            // Terminal is becoming visible - trigger redraw
-            DispatchQueue.main.async { [weak self] in
-                self?.refreshTerminal()
-            }
-        }
-    }
-
-    private func refreshTerminal() {
-        guard let terminalView = terminalView else { return }
+    func refreshTerminal() {
+        guard let terminalView = terminalView, hasStartedProcess else { return }
 
         // Force terminal to redraw
         terminalView.setNeedsDisplay(terminalView.bounds)
-        terminalView.displayIfNeeded()
 
-        // Send SIGWINCH to make the process redraw (if running)
-        if hasStartedProcess {
-            // Get current size and "resize" to same size to trigger redraw
-            let terminal = terminalView.getTerminal()
-            let cols = terminal.cols
-            let rows = terminal.rows
+        // Trigger a resize to same size - this sends SIGWINCH to the process
+        let terminal = terminalView.getTerminal()
+        let cols = terminal.cols
+        let rows = terminal.rows
+        if cols > 0 && rows > 0 {
             terminal.resize(cols: cols, rows: rows)
         }
     }
@@ -90,11 +93,6 @@ class TerminalContainerNSView: NSView {
                 self?.startClaudeProcess()
             }
         }
-    }
-
-    override func layout() {
-        super.layout()
-        // Terminal will auto-resize via constraints
     }
 
     private func startClaudeProcess() {
