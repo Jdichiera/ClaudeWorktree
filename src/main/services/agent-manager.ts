@@ -2,8 +2,10 @@ import { spawn, ChildProcess } from 'child_process'
 import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { accessSync, constants } from 'fs'
+import { resolve, normalize } from 'path'
 import type { SessionStatus, Message, ToolCall } from '@shared/types'
 import { IPC_CHANNELS } from '@shared/types'
+import { gitService } from './git-service'
 
 interface AgentSession {
   worktreeId: string
@@ -15,6 +17,10 @@ interface AgentSession {
   error?: string
   eventCleanup?: () => void
 }
+
+// Security limits
+const MAX_PROMPT_LENGTH = 100000 // 100KB max prompt
+const MAX_SESSIONS = 50 // Prevent resource exhaustion
 
 // Allowlist of safe environment variables to pass to Claude
 const SAFE_ENV_VARS = [
@@ -43,18 +49,41 @@ function getSafeEnv(): NodeJS.ProcessEnv {
 }
 
 /**
- * Basic prompt sanitization - removes control characters
+ * Sanitize prompt - removes control characters and enforces length limit
  */
 function sanitizePrompt(prompt: string): string {
+  // Enforce length limit
+  let sanitized = prompt.slice(0, MAX_PROMPT_LENGTH)
+
   // Remove control characters except newlines and tabs
-  return prompt.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+  sanitized = sanitized.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+
+  return sanitized
+}
+
+/**
+ * Validate and normalize a working directory path
+ */
+function validateWorkingDirectory(cwd: string): string | null {
+  if (!cwd || typeof cwd !== 'string') return null
+  if (cwd.length === 0 || cwd.length > 4096) return null
+
+  // Check for null bytes
+  if (cwd.includes('\0')) return null
+
+  try {
+    const normalized = normalize(resolve(cwd))
+    return normalized
+  } catch {
+    return null
+  }
 }
 
 export class AgentManager {
   private sessions: Map<string, AgentSession> = new Map()
   private mainWindow: BrowserWindow | null = null
 
-  setMainWindow(window: BrowserWindow): void {
+  setMainWindow(window: BrowserWindow | null): void {
     this.mainWindow = window
   }
 
@@ -66,8 +95,20 @@ export class AgentManager {
       throw new Error('Invalid worktree ID')
     }
 
-    if (!cwd || typeof cwd !== 'string') {
+    // Validate and normalize the working directory
+    const validCwd = validateWorkingDirectory(cwd)
+    if (!validCwd) {
       throw new Error('Invalid working directory')
+    }
+
+    // Verify this is a known worktree path to prevent arbitrary directory access
+    if (!gitService.isKnownWorktreePath(validCwd)) {
+      throw new Error('Working directory is not a known repository worktree')
+    }
+
+    // Enforce session limit
+    if (this.sessions.size >= MAX_SESSIONS && !this.sessions.has(worktreeId)) {
+      throw new Error('Maximum number of sessions reached')
     }
 
     // Clean up existing session if any
@@ -77,7 +118,7 @@ export class AgentManager {
 
     this.sessions.set(worktreeId, {
       worktreeId,
-      workingDirectory: cwd,
+      workingDirectory: validCwd,
       process: null,
       isProcessing: false,
       messages: [],
@@ -95,6 +136,10 @@ export class AgentManager {
 
     if (!message || typeof message !== 'string') {
       throw new Error('Invalid message')
+    }
+
+    if (message.length > MAX_PROMPT_LENGTH) {
+      throw new Error(`Message too long (max ${MAX_PROMPT_LENGTH} characters)`)
     }
 
     const session = this.sessions.get(worktreeId)
@@ -161,8 +206,6 @@ export class AgentManager {
     }
 
     // Fallback to just 'claude' and hope it's in PATH
-    // But warn about it
-    console.warn('Claude CLI not found in standard locations, falling back to PATH lookup')
     return 'claude'
   }
 
@@ -177,11 +220,7 @@ export class AgentManager {
     return new Promise((resolve, reject) => {
       const claudePath = this.findClaudePath()
 
-      console.log('Starting Claude agent in:', session.workingDirectory)
-      console.log('Using Claude at:', claudePath)
-      console.log('Prompt:', prompt.substring(0, 100))
-
-      // Sanitize the prompt
+      // Sanitize the prompt (includes length limit and control char removal)
       const sanitizedPrompt = sanitizePrompt(prompt)
 
       // Use claude CLI in non-interactive mode with text output
@@ -211,17 +250,14 @@ export class AgentManager {
 
       const onStderr = (data: Buffer) => {
         const errText = data.toString()
-        console.error('Claude stderr:', errText)
-        // Also emit as part of the message for visibility
+        // Only log error indicators, not full stderr (may contain sensitive info)
         if (errText.includes('Error:')) {
-          assistantMessage.content += `\n[Error: ${errText}]`
+          assistantMessage.content += `\n[Error occurred]`
           this.emitMessage(session.worktreeId, assistantMessage)
         }
       }
 
       const onClose = (code: number | null) => {
-        console.log('Claude process closed with code:', code)
-        console.log('Response content length:', assistantMessage.content.length)
         cleanup()
         session.process = null
         assistantMessage.isStreaming = false

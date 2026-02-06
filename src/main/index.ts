@@ -1,11 +1,29 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
+import { URL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupGitHandlers } from './ipc/git-handlers'
 import { setupAgentHandlers } from './ipc/agent-handlers'
 import { agentManager } from './services/agent-manager'
 
 let mainWindow: BrowserWindow | null = null
+
+// Allowed protocols for external URLs
+const ALLOWED_PROTOCOLS = new Set(['http:', 'https:'])
+
+/**
+ * Validate URL before opening externally
+ * Only allows http and https protocols to prevent local file access and code execution
+ */
+function isAllowedExternalUrl(urlString: string): boolean {
+  try {
+    const url = new URL(urlString)
+    return ALLOWED_PROTOCOLS.has(url.protocol)
+  } catch {
+    // Invalid URL
+    return false
+  }
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -34,9 +52,27 @@ function createWindow(): void {
     mainWindow = null
   })
 
+  // Validate URLs before opening externally - only allow http/https
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (isAllowedExternalUrl(details.url)) {
+      shell.openExternal(details.url)
+    } else {
+      console.warn('Blocked attempt to open disallowed URL:', details.url)
+    }
     return { action: 'deny' }
+  })
+
+  // Also handle navigation attempts
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    // Allow navigation to the app itself in dev mode
+    if (is.dev && process.env['ELECTRON_RENDERER_URL'] && url.startsWith(process.env['ELECTRON_RENDERER_URL'])) {
+      return
+    }
+    // Block all other navigations
+    event.preventDefault()
+    if (isAllowedExternalUrl(url)) {
+      shell.openExternal(url)
+    }
   })
 
   // Load the app
