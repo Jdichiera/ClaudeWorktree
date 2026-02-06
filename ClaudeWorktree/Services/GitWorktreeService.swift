@@ -38,7 +38,15 @@ actor GitWorktreeService {
     }
 
     func removeWorktree(in repoPath: String, path: String) async throws {
-        _ = try await runGitCommand(["worktree", "remove", path, "--force"], in: repoPath)
+        // Check if worktree directory still exists
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: path) {
+            // Directory exists, use normal remove
+            _ = try await runGitCommand(["worktree", "remove", path, "--force"], in: repoPath)
+        } else {
+            // Directory already deleted, prune stale worktree references
+            _ = try await runGitCommand(["worktree", "prune"], in: repoPath)
+        }
     }
 
     private func runGitCommand(_ args: [String], in directory: String) async throws -> String {
