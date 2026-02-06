@@ -7,7 +7,6 @@ struct SwiftTermView: NSViewRepresentable {
     var onClaudeError: ((String) -> Void)?
 
     func makeNSView(context: Context) -> NSView {
-        // Use a container view that holds the terminal
         let container = TerminalContainerNSView()
         container.setup(session: session, onClaudeError: onClaudeError)
         return container
@@ -30,30 +29,53 @@ class TerminalContainerNSView: NSView {
         self.session = session
         self.onClaudeError = onClaudeError
 
-        // Create terminal view
-        let terminal = LocalProcessTerminalView(frame: bounds)
+        // Create terminal view with zero frame initially
+        let terminal = LocalProcessTerminalView(frame: .zero)
         terminal.processDelegate = self
         terminal.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        terminal.autoresizingMask = [.width, .height]
+        terminal.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(terminal)
-        terminal.frame = bounds
+
+        // Use Auto Layout constraints
+        NSLayoutConstraint.activate([
+            terminal.topAnchor.constraint(equalTo: topAnchor),
+            terminal.bottomAnchor.constraint(equalTo: bottomAnchor),
+            terminal.leadingAnchor.constraint(equalTo: leadingAnchor),
+            terminal.trailingAnchor.constraint(equalTo: trailingAnchor)
+        ])
 
         self.terminalView = terminal
+    }
 
-        // Start Claude process
-        startClaudeProcess()
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Start process once we're in a window and have valid dimensions
+        if window != nil && !hasStartedProcess {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.startClaudeProcess()
+            }
+        }
     }
 
     override func layout() {
         super.layout()
-        terminalView?.frame = bounds
+        // Terminal will auto-resize via constraints
     }
 
     private func startClaudeProcess() {
         guard let terminalView = terminalView,
               let session = session,
               !hasStartedProcess else { return }
+
+        // Make sure we have valid dimensions
+        guard bounds.width > 0 && bounds.height > 0 else {
+            // Try again shortly
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.startClaudeProcess()
+            }
+            return
+        }
 
         hasStartedProcess = true
 
@@ -79,7 +101,7 @@ class TerminalContainerNSView: NSView {
 
 extension TerminalContainerNSView: LocalProcessTerminalViewDelegate {
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {
-        // Terminal size changed
+        // Terminal notifies the process of size change automatically
     }
 
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
