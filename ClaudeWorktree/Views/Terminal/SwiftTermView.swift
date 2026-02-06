@@ -113,10 +113,16 @@ class TerminalContainerNSView: NSView {
 
         hasStartedProcess = true
 
+        // createStartCommand now always returns a command (shows message if Claude not found)
         guard let command = ClaudeProcessManager.createStartCommand(workingDirectory: session.worktree.path) else {
-            DispatchQueue.main.async { [weak self] in
-                self?.onClaudeError?(ClaudeProcessManager.ClaudeError.claudeNotFound.localizedDescription)
-            }
+            // Fallback: just start a basic shell
+            let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+            terminalView.startProcess(
+                executable: shell,
+                args: ["-l"],
+                environment: nil,
+                execName: "shell"
+            )
             return
         }
 

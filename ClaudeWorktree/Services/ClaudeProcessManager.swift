@@ -71,17 +71,45 @@ class ClaudeProcessManager {
         return env
     }
 
+    /// Creates command to start an interactive shell in the working directory that runs Claude.
+    /// When Claude exits, the user remains in the shell and can restart Claude or run other commands.
+    /// Returns nil only if we can't determine a shell to use.
     static func createStartCommand(workingDirectory: String) -> (executable: String, args: [String], env: [String: String])? {
-        guard let claudePath = findClaudeExecutable() else {
-            return nil
-        }
-
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        let env = getShellEnvironment()
+        var env = getShellEnvironment()
+
+        // Set the working directory
+        env["PWD"] = workingDirectory
+
+        // Find claude path for the initial command
+        if let claudePath = findClaudeExecutable() {
+            // Start shell, run Claude, then stay in interactive shell when Claude exits
+            let initScript = "cd '\(workingDirectory)' && '\(claudePath)'; exec \(shell) -i"
+            return (
+                executable: shell,
+                args: ["-l", "-c", initScript],
+                env: env
+            )
+        } else {
+            // Claude not found - just start a shell with a helpful message
+            let initScript = "cd '\(workingDirectory)' && echo 'Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code' && exec \(shell) -i"
+            return (
+                executable: shell,
+                args: ["-l", "-c", initScript],
+                env: env
+            )
+        }
+    }
+
+    /// Creates command to start just a shell (no Claude) in the working directory
+    static func createShellCommand(workingDirectory: String) -> (executable: String, args: [String], env: [String: String]) {
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        var env = getShellEnvironment()
+        env["PWD"] = workingDirectory
 
         return (
             executable: shell,
-            args: ["-l", "-c", "cd '\(workingDirectory)' && '\(claudePath)'"],
+            args: ["-l", "-c", "cd '\(workingDirectory)' && exec \(shell) -i"],
             env: env
         )
     }
