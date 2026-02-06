@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { Message } from './Message'
 import type { Message as MessageType } from '../../types'
 
@@ -8,13 +8,40 @@ interface MessageListProps {
 
 export function MessageList({ messages }: MessageListProps) {
   const listRef = useRef<HTMLDivElement>(null)
+  const isAtBottomRef = useRef(true)
 
-  // Auto-scroll to bottom when new messages arrive
+  // Check if user is at the bottom of the scroll
+  const checkIfAtBottom = useCallback(() => {
+    if (!listRef.current) return true
+    const { scrollTop, scrollHeight, clientHeight } = listRef.current
+    // Consider "at bottom" if within 50px of the bottom
+    return scrollHeight - scrollTop - clientHeight < 50
+  }, [])
+
+  // Handle scroll events to track if user is at bottom
+  const handleScroll = useCallback(() => {
+    isAtBottomRef.current = checkIfAtBottom()
+  }, [checkIfAtBottom])
+
+  // Auto-scroll to bottom when new messages arrive, but only if already at bottom
   useEffect(() => {
-    if (listRef.current) {
+    if (listRef.current && isAtBottomRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight
     }
   }, [messages])
+
+  // When messages array length changes (new message added), scroll to bottom
+  const prevLengthRef = useRef(messages.length)
+  useEffect(() => {
+    if (messages.length > prevLengthRef.current) {
+      // New message added, scroll to bottom
+      if (listRef.current) {
+        listRef.current.scrollTop = listRef.current.scrollHeight
+        isAtBottomRef.current = true
+      }
+    }
+    prevLengthRef.current = messages.length
+  }, [messages.length])
 
   if (messages.length === 0) {
     return (
@@ -51,7 +78,7 @@ export function MessageList({ messages }: MessageListProps) {
   }
 
   return (
-    <div className="message-list" ref={listRef}>
+    <div className="message-list" ref={listRef} onScroll={handleScroll}>
       {messages.map((message) => (
         <Message key={message.id} message={message} />
       ))}

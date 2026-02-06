@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupGitHandlers } from './ipc/git-handlers'
 import { setupAgentHandlers } from './ipc/agent-handlers'
+import { agentManager } from './services/agent-manager'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -18,7 +19,7 @@ function createWindow(): void {
     trafficLightPosition: { x: 15, y: 15 },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -26,6 +27,11 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
+  })
+
+  mainWindow.on('closed', () => {
+    // Clean up the window reference
+    mainWindow = null
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -68,4 +74,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+// Clean up agent manager when app quits
+app.on('will-quit', () => {
+  // Update agent manager's window reference
+  agentManager.setMainWindow(null as unknown as BrowserWindow)
 })

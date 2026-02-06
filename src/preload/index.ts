@@ -18,6 +18,9 @@ const electronAPI: ElectronAPI = {
 
     getBranches: (repoPath: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_BRANCHES, repoPath),
+
+    getDefaultBranch: (repoPath: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_DEFAULT_BRANCH, repoPath),
   },
 
   agent: {
@@ -32,6 +35,17 @@ const electronAPI: ElectronAPI = {
 
     getStatus: (worktreeId: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_GET_STATUS, worktreeId),
+
+    removeSession: (worktreeId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_REMOVE_SESSION, worktreeId),
+  },
+
+  dialog: {
+    confirm: (message: string, title?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.SHOW_CONFIRM_DIALOG, message, title),
+
+    alert: (message: string, title?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.SHOW_ALERT_DIALOG, message, title),
   },
 
   onAgentMessage: (callback: (worktreeId: string, message: Message) => void) => {

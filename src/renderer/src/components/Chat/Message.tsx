@@ -5,8 +5,6 @@ interface MessageProps {
 }
 
 export function Message({ message }: MessageProps) {
-  const isUser = message.role === 'user'
-
   return (
     <div
       className={`message message-${message.role} ${message.isStreaming ? 'message-streaming' : ''}`}
@@ -29,7 +27,7 @@ function formatContent(content: string): JSX.Element {
           // Code block
           const lines = part.slice(3, -3).split('\n')
           const language = lines[0] || ''
-          const code = lines.slice(1).join('\n') || lines[0]
+          const code = lines.slice(language ? 1 : 0).join('\n') || lines[0]
 
           return (
             <pre key={index}>

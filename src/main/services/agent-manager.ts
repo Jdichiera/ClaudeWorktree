@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from 'child_process'
 import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
+import { accessSync, constants } from 'fs'
 import type { SessionStatus, Message, ToolCall } from '@shared/types'
 import { IPC_CHANNELS } from '@shared/types'
 
@@ -12,6 +13,41 @@ interface AgentSession {
   messages: Message[]
   currentMessageId: string | null
   error?: string
+  eventCleanup?: () => void
+}
+
+// Allowlist of safe environment variables to pass to Claude
+const SAFE_ENV_VARS = [
+  'PATH',
+  'HOME',
+  'USER',
+  'SHELL',
+  'LANG',
+  'LC_ALL',
+  'TERM',
+  'TMPDIR',
+  'XDG_RUNTIME_DIR',
+]
+
+/**
+ * Create a sanitized environment object with only safe variables
+ */
+function getSafeEnv(): NodeJS.ProcessEnv {
+  const safeEnv: NodeJS.ProcessEnv = {}
+  for (const key of SAFE_ENV_VARS) {
+    if (process.env[key]) {
+      safeEnv[key] = process.env[key]
+    }
+  }
+  return safeEnv
+}
+
+/**
+ * Basic prompt sanitization - removes control characters
+ */
+function sanitizePrompt(prompt: string): string {
+  // Remove control characters except newlines and tabs
+  return prompt.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
 }
 
 export class AgentManager {
@@ -26,6 +62,14 @@ export class AgentManager {
    * Create a new agent session for a worktree
    */
   async createSession(worktreeId: string, cwd: string): Promise<void> {
+    if (!worktreeId || typeof worktreeId !== 'string') {
+      throw new Error('Invalid worktree ID')
+    }
+
+    if (!cwd || typeof cwd !== 'string') {
+      throw new Error('Invalid working directory')
+    }
+
     // Clean up existing session if any
     if (this.sessions.has(worktreeId)) {
       await this.abortSession(worktreeId)
@@ -45,6 +89,14 @@ export class AgentManager {
    * Send a message to the agent and stream responses
    */
   async sendMessage(worktreeId: string, message: string): Promise<void> {
+    if (!worktreeId || typeof worktreeId !== 'string') {
+      throw new Error('Invalid worktree ID')
+    }
+
+    if (!message || typeof message !== 'string') {
+      throw new Error('Invalid message')
+    }
+
     const session = this.sessions.get(worktreeId)
     if (!session) {
       throw new Error(`No session found for worktree: ${worktreeId}`)
@@ -101,7 +153,7 @@ export class AgentManager {
 
     for (const p of possiblePaths) {
       try {
-        require('fs').accessSync(p, require('fs').constants.X_OK)
+        accessSync(p, constants.X_OK)
         return p
       } catch {
         continue
@@ -109,6 +161,8 @@ export class AgentManager {
     }
 
     // Fallback to just 'claude' and hope it's in PATH
+    // But warn about it
+    console.warn('Claude CLI not found in standard locations, falling back to PATH lookup')
     return 'claude'
   }
 
@@ -127,16 +181,19 @@ export class AgentManager {
       console.log('Using Claude at:', claudePath)
       console.log('Prompt:', prompt.substring(0, 100))
 
+      // Sanitize the prompt
+      const sanitizedPrompt = sanitizePrompt(prompt)
+
       // Use claude CLI in non-interactive mode with text output
       // Note: prompt must come BEFORE --allowedTools since it's a variadic arg
       const claudeProcess = spawn(claudePath, [
         '--print',
         '--output-format', 'text',
-        prompt,
+        sanitizedPrompt,
         '--allowedTools', 'Read,Edit,Write,Bash,Glob,Grep',
       ], {
         cwd: session.workingDirectory,
-        env: process.env,
+        env: getSafeEnv(),
         stdio: ['pipe', 'pipe', 'pipe'],
       })
 
@@ -145,13 +202,14 @@ export class AgentManager {
 
       session.process = claudeProcess
 
-      claudeProcess.stdout?.on('data', (data: Buffer) => {
+      // Event handlers
+      const onStdout = (data: Buffer) => {
         const text = data.toString()
         assistantMessage.content += text
         this.emitMessage(session.worktreeId, assistantMessage)
-      })
+      }
 
-      claudeProcess.stderr?.on('data', (data: Buffer) => {
+      const onStderr = (data: Buffer) => {
         const errText = data.toString()
         console.error('Claude stderr:', errText)
         // Also emit as part of the message for visibility
@@ -159,11 +217,12 @@ export class AgentManager {
           assistantMessage.content += `\n[Error: ${errText}]`
           this.emitMessage(session.worktreeId, assistantMessage)
         }
-      })
+      }
 
-      claudeProcess.on('close', (code) => {
+      const onClose = (code: number | null) => {
         console.log('Claude process closed with code:', code)
         console.log('Response content length:', assistantMessage.content.length)
+        cleanup()
         session.process = null
         assistantMessage.isStreaming = false
         this.emitMessage(session.worktreeId, assistantMessage)
@@ -173,72 +232,32 @@ export class AgentManager {
         } else {
           reject(new Error(`Claude process exited with code ${code}`))
         }
-      })
+      }
 
-      claudeProcess.on('error', (error) => {
+      const onError = (error: Error) => {
+        cleanup()
         session.process = null
         reject(error)
-      })
+      }
+
+      // Attach event handlers
+      claudeProcess.stdout?.on('data', onStdout)
+      claudeProcess.stderr?.on('data', onStderr)
+      claudeProcess.on('close', onClose)
+      claudeProcess.on('error', onError)
+
+      // Cleanup function to remove all event listeners
+      const cleanup = () => {
+        claudeProcess.stdout?.removeListener('data', onStdout)
+        claudeProcess.stderr?.removeListener('data', onStderr)
+        claudeProcess.removeListener('close', onClose)
+        claudeProcess.removeListener('error', onError)
+        session.eventCleanup = undefined
+      }
+
+      // Store cleanup function for abort
+      session.eventCleanup = cleanup
     })
-  }
-
-  /**
-   * Handle streaming events from Claude agent
-   */
-  private handleAgentEvent(
-    session: AgentSession,
-    event: Record<string, unknown>,
-    assistantMessage: Message
-  ): void {
-    switch (event.type) {
-      case 'assistant':
-        // Handle assistant message content
-        if (event.message && typeof event.message === 'object') {
-          const msg = event.message as { content?: Array<{ type: string; text?: string }> }
-          if (msg.content) {
-            for (const block of msg.content) {
-              if (block.type === 'text' && block.text) {
-                assistantMessage.content = block.text
-                this.emitMessage(session.worktreeId, assistantMessage)
-              }
-            }
-          }
-        }
-        break
-
-      case 'tool_use':
-        // Handle tool calls
-        const toolCall: ToolCall = {
-          id: (event.id as string) || randomUUID(),
-          name: (event.name as string) || 'unknown',
-          input: (event.input as Record<string, unknown>) || {},
-          status: 'running',
-          timestamp: Date.now(),
-        }
-        this.emitToolCall(session.worktreeId, toolCall)
-        break
-
-      case 'tool_result':
-        // Handle tool results
-        const resultToolCall: ToolCall = {
-          id: (event.tool_use_id as string) || randomUUID(),
-          name: 'tool_result',
-          input: {},
-          output: typeof event.content === 'string' ? event.content : JSON.stringify(event.content),
-          status: event.is_error ? 'error' : 'completed',
-          timestamp: Date.now(),
-        }
-        this.emitToolCall(session.worktreeId, resultToolCall)
-        break
-
-      case 'result':
-        // Final result
-        if (event.result && typeof event.result === 'string') {
-          assistantMessage.content = event.result
-          this.emitMessage(session.worktreeId, assistantMessage)
-        }
-        break
-    }
   }
 
   /**
@@ -248,8 +267,33 @@ export class AgentManager {
     const session = this.sessions.get(worktreeId)
     if (!session) return
 
+    // Clean up event listeners first
+    if (session.eventCleanup) {
+      session.eventCleanup()
+    }
+
     if (session.process) {
-      session.process.kill('SIGTERM')
+      const proc = session.process
+
+      // Try SIGTERM first
+      proc.kill('SIGTERM')
+
+      // Set a timeout to force kill if process doesn't terminate
+      const killTimeout = setTimeout(() => {
+        try {
+          if (!proc.killed) {
+            proc.kill('SIGKILL')
+          }
+        } catch {
+          // Process may have already exited
+        }
+      }, 3000) // 3 second timeout
+
+      // Clear timeout if process exits cleanly
+      proc.once('exit', () => {
+        clearTimeout(killTimeout)
+      })
+
       session.process = null
     }
 
@@ -279,6 +323,14 @@ export class AgentManager {
   getMessages(worktreeId: string): Message[] {
     const session = this.sessions.get(worktreeId)
     return session?.messages || []
+  }
+
+  /**
+   * Remove a session and clean up resources
+   */
+  async removeSession(worktreeId: string): Promise<void> {
+    await this.abortSession(worktreeId)
+    this.sessions.delete(worktreeId)
   }
 
   // Event emitters

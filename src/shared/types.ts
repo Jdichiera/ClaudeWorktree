@@ -74,12 +74,14 @@ export const IPC_CHANNELS = {
   GIT_REMOVE_WORKTREE: 'git:remove-worktree',
   GIT_IS_REPOSITORY: 'git:is-repository',
   GIT_GET_BRANCHES: 'git:get-branches',
+  GIT_GET_DEFAULT_BRANCH: 'git:get-default-branch',
 
   // Agent operations
   AGENT_CREATE_SESSION: 'agent:create-session',
   AGENT_SEND_MESSAGE: 'agent:send-message',
   AGENT_ABORT: 'agent:abort',
   AGENT_GET_STATUS: 'agent:get-status',
+  AGENT_REMOVE_SESSION: 'agent:remove-session',
 
   // Agent events (main -> renderer)
   AGENT_MESSAGE: 'agent:message',
@@ -88,6 +90,8 @@ export const IPC_CHANNELS = {
 
   // Dialog
   SHOW_OPEN_DIALOG: 'dialog:open',
+  SHOW_CONFIRM_DIALOG: 'dialog:confirm',
+  SHOW_ALERT_DIALOG: 'dialog:alert',
 } as const
 
 // Electron API exposed via preload
@@ -98,12 +102,18 @@ export interface ElectronAPI {
     removeWorktree: (repoPath: string, worktreePath: string) => Promise<void>
     isGitRepository: (path: string) => Promise<boolean>
     getBranches: (repoPath: string) => Promise<string[]>
+    getDefaultBranch: (repoPath: string) => Promise<string>
   }
   agent: {
     createSession: (worktreeId: string, cwd: string) => Promise<void>
     sendMessage: (worktreeId: string, message: string) => Promise<void>
     abort: (worktreeId: string) => Promise<void>
     getStatus: (worktreeId: string) => Promise<SessionStatus>
+    removeSession: (worktreeId: string) => Promise<void>
+  }
+  dialog: {
+    confirm: (message: string, title?: string) => Promise<boolean>
+    alert: (message: string, title?: string) => Promise<void>
   }
   onAgentMessage: (callback: (worktreeId: string, message: Message) => void) => () => void
   onAgentToolCall: (callback: (worktreeId: string, toolCall: ToolCall) => void) => () => void

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { WorktreeItem } from './WorktreeItem'
 import type { Repository } from '../../types'
@@ -11,24 +11,40 @@ export function RepoSection({ repository }: RepoSectionProps) {
   const [isExpanded, setIsExpanded] = useState(true)
   const [showAddWorktree, setShowAddWorktree] = useState(false)
   const [newBranchName, setNewBranchName] = useState('')
+  const [defaultBranch, setDefaultBranch] = useState('main')
 
   const { refreshRepository, addWorktree, removeRepository, isLoading } = useAppStore()
+
+  // Fetch the default branch when repository changes
+  useEffect(() => {
+    window.electronAPI.git.getDefaultBranch(repository.path).then(setDefaultBranch).catch(() => {
+      setDefaultBranch('main')
+    })
+  }, [repository.path])
 
   const handleAddWorktree = async () => {
     if (!newBranchName.trim()) return
 
     try {
-      await addWorktree(repository.path, newBranchName.trim(), 'main')
+      await addWorktree(repository.path, newBranchName.trim(), defaultBranch)
       setNewBranchName('')
       setShowAddWorktree(false)
-    } catch (err) {
-      console.error('Failed to add worktree:', err)
+    } catch (error) {
+      await window.electronAPI.dialog.alert(
+        error instanceof Error ? error.message : 'Failed to add worktree',
+        'Error'
+      )
     }
   }
 
-  const handleRemoveRepo = () => {
-    if (confirm(`Remove ${repository.name} from the list?`)) {
-      removeRepository(repository.id)
+  const handleRemoveRepo = async () => {
+    const confirmed = await window.electronAPI.dialog.confirm(
+      `Remove ${repository.name} from the list?`,
+      'Remove Repository'
+    )
+
+    if (confirmed) {
+      await removeRepository(repository.id)
     }
   }
 
@@ -170,7 +186,7 @@ export function RepoSection({ repository }: RepoSectionProps) {
                 type="text"
                 value={newBranchName}
                 onChange={(e) => setNewBranchName(e.target.value)}
-                placeholder="New branch name"
+                placeholder={`New branch (from ${defaultBranch})`}
                 style={{
                   flex: 1,
                   padding: '6px 10px',

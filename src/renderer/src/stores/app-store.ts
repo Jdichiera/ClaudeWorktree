@@ -17,7 +17,7 @@ interface AppState {
 
   // Actions
   addRepository: (path: string) => Promise<void>
-  removeRepository: (repoId: string) => void
+  removeRepository: (repoId: string) => Promise<void>
   refreshRepository: (repoId: string) => Promise<void>
   selectWorktree: (worktreeId: string | null) => void
 
@@ -40,6 +40,18 @@ function generateRepoId(path: string): string {
   return btoa(path).replace(/[/+=]/g, '_')
 }
 
+// Default session state
+function createDefaultSession(): SessionState {
+  return {
+    messages: [],
+    toolCalls: [],
+    status: { isActive: false, isProcessing: false },
+  }
+}
+
+// Track if an operation is in progress to prevent race conditions
+let addRepositoryLock = false
+
 export const useAppStore = create<AppState>((set, get) => ({
   // Initial state
   repositories: [],
@@ -50,6 +62,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Actions
   addRepository: async (path: string) => {
+    // Prevent concurrent adds
+    if (addRepositoryLock) {
+      throw new Error('Another repository is being added')
+    }
+
+    // Check for duplicates
+    if (get().repositories.some((r) => r.path === path)) {
+      throw new Error('Repository already added')
+    }
+
+    addRepositoryLock = true
     set({ isLoading: true, error: null })
 
     try {
@@ -79,22 +102,44 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       set({
         isLoading: false,
-        error: error instanceof Error ? error.message : 'Failed to add repository'
+        error: error instanceof Error ? error.message : 'Failed to add repository',
       })
       throw error
+    } finally {
+      addRepositoryLock = false
     }
   },
 
-  removeRepository: (repoId: string) => {
-    set((state) => ({
-      repositories: state.repositories.filter((r) => r.id !== repoId),
-      selectedWorktreeId:
-        state.repositories.find((r) => r.id === repoId)?.worktrees.some(
-          (w) => w.id === state.selectedWorktreeId
-        )
+  removeRepository: async (repoId: string) => {
+    const repo = get().repositories.find((r) => r.id === repoId)
+    if (!repo) return
+
+    // Clean up sessions for all worktrees in this repository
+    for (const worktree of repo.worktrees) {
+      try {
+        await window.electronAPI.agent.removeSession(worktree.id)
+      } catch (error) {
+        console.error('Failed to remove session:', error)
+      }
+    }
+
+    // Clean up sessions from state
+    const worktreeIds = new Set(repo.worktrees.map((w) => w.id))
+
+    set((state) => {
+      const newSessions = { ...state.sessions }
+      for (const id of worktreeIds) {
+        delete newSessions[id]
+      }
+
+      return {
+        repositories: state.repositories.filter((r) => r.id !== repoId),
+        sessions: newSessions,
+        selectedWorktreeId: worktreeIds.has(state.selectedWorktreeId || '')
           ? null
           : state.selectedWorktreeId,
-    }))
+      }
+    })
   },
 
   refreshRepository: async (repoId: string) => {
@@ -129,11 +174,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((state) => ({
         sessions: {
           ...state.sessions,
-          [worktreeId]: {
-            messages: [],
-            toolCalls: [],
-            status: { isActive: false, isProcessing: false },
-          },
+          [worktreeId]: createDefaultSession(),
         },
       }))
     }
@@ -155,7 +196,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       set({
         isLoading: false,
-        error: error instanceof Error ? error.message : 'Failed to add worktree'
+        error: error instanceof Error ? error.message : 'Failed to add worktree',
       })
       throw error
     }
@@ -166,6 +207,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     try {
       await window.electronAPI.git.removeWorktree(repoPath, worktreePath)
+
+      // Clean up the session
+      try {
+        await window.electronAPI.agent.removeSession(worktreeId)
+      } catch (error) {
+        console.error('Failed to remove session:', error)
+      }
 
       // Find and refresh the repository
       const repo = get().repositories.find((r) => r.path === repoPath)
@@ -178,11 +226,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         set({ selectedWorktreeId: null })
       }
 
-      set({ isLoading: false })
+      // Remove session from state
+      set((state) => {
+        const newSessions = { ...state.sessions }
+        delete newSessions[worktreeId]
+        return { sessions: newSessions, isLoading: false }
+      })
     } catch (error) {
       set({
         isLoading: false,
-        error: error instanceof Error ? error.message : 'Failed to remove worktree'
+        error: error instanceof Error ? error.message : 'Failed to remove worktree',
       })
       throw error
     }
@@ -195,12 +248,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       return
     }
 
+    // Ensure session exists
+    const session = get().sessions[selectedWorktreeId] || createDefaultSession()
+
     // Update session status
     set((state) => ({
       sessions: {
         ...state.sessions,
         [selectedWorktreeId]: {
-          ...state.sessions[selectedWorktreeId],
+          ...session,
           status: { isActive: true, isProcessing: true },
         },
       },
@@ -209,19 +265,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await window.electronAPI.agent.sendMessage(selectedWorktreeId, message)
     } catch (error) {
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [selectedWorktreeId]: {
-            ...state.sessions[selectedWorktreeId],
-            status: {
-              isActive: true,
-              isProcessing: false,
-              error: error instanceof Error ? error.message : 'Failed to send message'
+      set((state) => {
+        const currentSession = state.sessions[selectedWorktreeId] || createDefaultSession()
+        return {
+          sessions: {
+            ...state.sessions,
+            [selectedWorktreeId]: {
+              ...currentSession,
+              status: {
+                isActive: true,
+                isProcessing: false,
+                error: error instanceof Error ? error.message : 'Failed to send message',
+              },
             },
           },
-        },
-      }))
+        }
+      })
     }
   },
 
@@ -232,15 +291,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await window.electronAPI.agent.abort(selectedWorktreeId)
 
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [selectedWorktreeId]: {
-            ...state.sessions[selectedWorktreeId],
-            status: { isActive: true, isProcessing: false },
+      set((state) => {
+        const session = state.sessions[selectedWorktreeId] || createDefaultSession()
+        return {
+          sessions: {
+            ...state.sessions,
+            [selectedWorktreeId]: {
+              ...session,
+              status: { isActive: true, isProcessing: false },
+            },
           },
-        },
-      }))
+        }
+      })
     } catch (error) {
       set({ error: error instanceof Error ? error.message : 'Failed to abort agent' })
     }
@@ -249,11 +311,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // IPC event handlers
   handleAgentMessage: (worktreeId: string, message: Message) => {
     set((state) => {
-      const session = state.sessions[worktreeId] || {
-        messages: [],
-        toolCalls: [],
-        status: { isActive: true, isProcessing: false },
-      }
+      const session = state.sessions[worktreeId] || createDefaultSession()
 
       // Check if we're updating an existing message (streaming)
       const existingIndex = session.messages.findIndex((m) => m.id === message.id)
@@ -284,11 +342,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   handleAgentToolCall: (worktreeId: string, toolCall: ToolCall) => {
     set((state) => {
-      const session = state.sessions[worktreeId] || {
-        messages: [],
-        toolCalls: [],
-        status: { isActive: true, isProcessing: true },
-      }
+      const session = state.sessions[worktreeId] || createDefaultSession()
 
       // Check if we're updating an existing tool call
       const existingIndex = session.toolCalls.findIndex((tc) => tc.id === toolCall.id)
@@ -314,15 +368,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   handleAgentError: (worktreeId: string, error: string) => {
-    set((state) => ({
-      sessions: {
-        ...state.sessions,
-        [worktreeId]: {
-          ...state.sessions[worktreeId],
-          status: { isActive: true, isProcessing: false, error },
+    set((state) => {
+      const session = state.sessions[worktreeId] || createDefaultSession()
+      return {
+        sessions: {
+          ...state.sessions,
+          [worktreeId]: {
+            ...session,
+            status: { isActive: true, isProcessing: false, error },
+          },
         },
-      },
-    }))
+      }
+    })
   },
 
   setError: (error: string | null) => {

@@ -17,12 +17,24 @@ export function WorktreeItem({ worktree, repoPath }: WorktreeItemProps) {
     e.stopPropagation()
 
     if (worktree.isMain) {
-      alert('Cannot remove the main worktree')
+      await window.electronAPI.dialog.alert('Cannot remove the main worktree')
       return
     }
 
-    if (confirm(`Remove worktree for branch "${worktree.branch}"?`)) {
-      await removeWorktree(repoPath, worktree.path, worktree.id)
+    const confirmed = await window.electronAPI.dialog.confirm(
+      `Remove worktree for branch "${worktree.branch}"?`,
+      'Remove Worktree'
+    )
+
+    if (confirmed) {
+      try {
+        await removeWorktree(repoPath, worktree.path, worktree.id)
+      } catch (error) {
+        await window.electronAPI.dialog.alert(
+          error instanceof Error ? error.message : 'Failed to remove worktree',
+          'Error'
+        )
+      }
     }
   }
 
