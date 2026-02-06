@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TerminalContainerView: View {
     @ObservedObject var session: ClaudeSession
+    var isVisible: Bool
     @State private var showingClaudeError = false
     @State private var claudeErrorMessage: String?
 
@@ -9,10 +10,14 @@ struct TerminalContainerView: View {
         VStack(spacing: 0) {
             headerBar
 
-            SwiftTermView(session: session, onClaudeError: { error in
-                claudeErrorMessage = error
-                showingClaudeError = true
-            })
+            SwiftTermView(
+                session: session,
+                onClaudeError: { error in
+                    claudeErrorMessage = error
+                    showingClaudeError = true
+                },
+                isVisible: isVisible
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .alert("Claude CLI Error", isPresented: $showingClaudeError) {
@@ -77,9 +82,10 @@ struct TerminalStackView: View {
             // Create a terminal for each worktree across all repositories
             ForEach(appState.allWorktrees) { worktree in
                 let session = appState.sessionFor(worktree)
-                TerminalContainerView(session: session)
-                    .opacity(appState.selectedWorktreeId == worktree.id ? 1 : 0)
-                    .allowsHitTesting(appState.selectedWorktreeId == worktree.id)
+                let isSelected = appState.selectedWorktreeId == worktree.id
+                TerminalContainerView(session: session, isVisible: isSelected)
+                    .opacity(isSelected ? 1 : 0)
+                    .allowsHitTesting(isSelected)
             }
         }
     }

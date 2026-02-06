@@ -5,6 +5,7 @@ import AppKit
 struct SwiftTermView: NSViewRepresentable {
     @ObservedObject var session: ClaudeSession
     var onClaudeError: ((String) -> Void)?
+    var isVisible: Bool
 
     func makeNSView(context: Context) -> NSView {
         let container = TerminalContainerNSView()
@@ -13,7 +14,10 @@ struct SwiftTermView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        // Terminal is already running, no need to update
+        // Trigger redraw when becoming visible
+        if let container = nsView as? TerminalContainerNSView {
+            container.setVisible(isVisible)
+        }
     }
 }
 
@@ -24,6 +28,7 @@ class TerminalContainerNSView: NSView {
     private var hasStartedProcess = false
     private weak var session: ClaudeSession?
     private var onClaudeError: ((String) -> Void)?
+    private var isCurrentlyVisible = false
 
     func setup(session: ClaudeSession, onClaudeError: ((String) -> Void)?) {
         self.session = session
@@ -46,6 +51,35 @@ class TerminalContainerNSView: NSView {
         ])
 
         self.terminalView = terminal
+    }
+
+    func setVisible(_ visible: Bool) {
+        let wasHidden = !isCurrentlyVisible
+        isCurrentlyVisible = visible
+
+        if visible && wasHidden {
+            // Terminal is becoming visible - trigger redraw
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshTerminal()
+            }
+        }
+    }
+
+    private func refreshTerminal() {
+        guard let terminalView = terminalView else { return }
+
+        // Force terminal to redraw
+        terminalView.setNeedsDisplay(terminalView.bounds)
+        terminalView.displayIfNeeded()
+
+        // Send SIGWINCH to make the process redraw (if running)
+        if hasStartedProcess {
+            // Get current size and "resize" to same size to trigger redraw
+            let terminal = terminalView.getTerminal()
+            let cols = terminal.cols
+            let rows = terminal.rows
+            terminal.resize(cols: cols, rows: rows)
+        }
     }
 
     override func viewDidMoveToWindow() {
