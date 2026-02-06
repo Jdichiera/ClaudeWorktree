@@ -1,13 +1,13 @@
 import { spawn } from 'child_process'
 import { basename, resolve, normalize, dirname } from 'path'
-import { existsSync, realpathSync } from 'fs'
+import { existsSync, realpathSync, lstatSync } from 'fs'
 import type { Worktree } from '@shared/types'
 
 // Maximum branch name length to prevent DoS
 const MAX_BRANCH_LENGTH = 100
 
-// Track known repository paths for validation
-const knownRepoPaths = new Set<string>()
+// Track known worktree paths explicitly (not just repo paths)
+const knownWorktreePaths = new Set<string>()
 
 /**
  * Validate branch name to prevent command injection
@@ -87,14 +87,20 @@ function validatePath(inputPath: string, allowedBasePath?: string): string | nul
 }
 
 /**
- * Legacy isValidPath for backward compatibility - use validatePath instead
+ * Check if a path is a symlink (for TOCTOU mitigation)
  */
-function isValidPath(path: string): boolean {
-  return validatePath(path) !== null
+function isSymlink(path: string): boolean {
+  try {
+    const stats = lstatSync(path)
+    return stats.isSymbolicLink()
+  } catch {
+    return false
+  }
 }
 
 /**
  * Execute a git command using spawn (safer than exec)
+ * Returns sanitized output (no sensitive paths in errors)
  */
 function gitSpawn(args: string[], cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -110,11 +116,21 @@ function gitSpawn(args: string[], cwd: string): Promise<string> {
       if (code === 0) {
         resolve(stdout)
       } else {
-        reject(new Error(stderr || `git command failed with code ${code}`))
+        // Sanitize error message - don't expose full paths or detailed errors
+        const sanitizedError = stderr.includes('not a git repository')
+          ? 'Not a git repository'
+          : stderr.includes('already exists')
+            ? 'Path already exists'
+            : stderr.includes('invalid reference')
+              ? 'Invalid branch reference'
+              : `Git command failed (code ${code})`
+        reject(new Error(sanitizedError))
       }
     })
 
-    process.on('error', reject)
+    process.on('error', () => {
+      reject(new Error('Failed to execute git command'))
+    })
   })
 }
 
@@ -140,14 +156,14 @@ export class GitService {
   async getRepoRoot(path: string): Promise<string> {
     const validPath = validatePath(path)
     if (!validPath) {
-      throw new Error('Invalid path provided')
+      throw new Error('Invalid path')
     }
 
     const stdout = await gitSpawn(['rev-parse', '--show-toplevel'], validPath)
     const repoRoot = stdout.trim()
 
-    // Track this as a known repo path
-    knownRepoPaths.add(repoRoot)
+    // Track this as a known worktree path
+    knownWorktreePaths.add(repoRoot)
 
     return repoRoot
   }
@@ -158,17 +174,24 @@ export class GitService {
   async listWorktrees(repoPath: string): Promise<Worktree[]> {
     const validPath = validatePath(repoPath)
     if (!validPath) {
-      console.error('Invalid repository path')
       return []
     }
 
     try {
       // Get the actual repo root and track it
       const repoRoot = await this.getRepoRoot(validPath)
-      knownRepoPaths.add(repoRoot)
+      knownWorktreePaths.add(repoRoot)
 
       const stdout = await gitSpawn(['worktree', 'list', '--porcelain'], validPath)
       const worktrees = this.parseWorktreeOutput(stdout)
+
+      // Track all worktree paths explicitly
+      for (const wt of worktrees) {
+        const wtValidPath = validatePath(wt.path)
+        if (wtValidPath) {
+          knownWorktreePaths.add(wtValidPath)
+        }
+      }
 
       // Check for uncommitted changes in each worktree
       const worktreesWithStatus = await Promise.all(
@@ -179,8 +202,7 @@ export class GitService {
       )
 
       return worktreesWithStatus
-    } catch (error) {
-      console.error('Failed to list worktrees:', error)
+    } catch {
       return []
     }
   }
@@ -286,7 +308,7 @@ export class GitService {
     }
 
     if (!isValidBranchName(branch)) {
-      throw new Error('Invalid branch name. Use only alphanumeric characters, hyphens, underscores, and forward slashes (max 100 chars).')
+      throw new Error('Invalid branch name')
     }
 
     if (baseBranch && !isValidBranchName(baseBranch)) {
@@ -307,12 +329,17 @@ export class GitService {
     // Validate the final worktree path is within the repo parent directory
     const validWorktreePath = validatePath(worktreePath, repoParentDir)
     if (!validWorktreePath) {
-      throw new Error('Invalid worktree path - path traversal detected')
+      throw new Error('Invalid worktree path')
     }
 
-    // Ensure the worktree path doesn't already exist
+    // TOCTOU mitigation: Check if path exists AND is not a symlink
     if (existsSync(validWorktreePath)) {
-      throw new Error(`Worktree path already exists: ${validWorktreePath}`)
+      throw new Error('Worktree path already exists')
+    }
+
+    // Additional symlink check on parent to prevent symlink attacks
+    if (isSymlink(repoParentDir)) {
+      throw new Error('Invalid repository location')
     }
 
     try {
@@ -323,10 +350,14 @@ export class GitService {
         // Check out existing branch
         await gitSpawn(['worktree', 'add', validWorktreePath, branch], validRepoPath)
       }
+
+      // Track the new worktree path
+      knownWorktreePaths.add(validWorktreePath)
     } catch (error) {
       // If branch doesn't exist, try creating it
-      if (!baseBranch && error instanceof Error && error.message.includes('invalid reference')) {
+      if (!baseBranch && error instanceof Error && error.message.includes('Invalid branch')) {
         await gitSpawn(['worktree', 'add', '-b', branch, validWorktreePath], validRepoPath)
+        knownWorktreePaths.add(validWorktreePath)
       } else {
         throw error
       }
@@ -355,7 +386,7 @@ export class GitService {
     })
 
     if (!isValidWorktree) {
-      throw new Error('Worktree does not belong to this repository')
+      throw new Error('Worktree not found')
     }
 
     // First try normal remove
@@ -366,11 +397,14 @@ export class GitService {
       await gitSpawn(['worktree', 'remove', '--force', validWorktreePath], validRepoPath)
     }
 
+    // Remove from tracked paths
+    knownWorktreePaths.delete(validWorktreePath)
+
     // Prune worktree references
     try {
       await gitSpawn(['worktree', 'prune'], validRepoPath)
-    } catch (error) {
-      console.error('Failed to prune worktrees:', error)
+    } catch {
+      // Ignore prune errors
     }
   }
 
@@ -380,7 +414,6 @@ export class GitService {
   async getBranches(repoPath: string): Promise<string[]> {
     const validPath = validatePath(repoPath)
     if (!validPath) {
-      console.error('Invalid repository path for getBranches')
       return []
     }
 
@@ -390,8 +423,7 @@ export class GitService {
         .trim()
         .split('\n')
         .filter((b) => b.length > 0)
-    } catch (error) {
-      console.error('Failed to get branches:', error)
+    } catch {
       return []
     }
   }
@@ -412,24 +444,24 @@ export class GitService {
   }
 
   /**
-   * Check if a path is a known worktree path
+   * Check if a path is a known worktree path (explicitly tracked)
    */
   isKnownWorktreePath(path: string): boolean {
     const validPath = validatePath(path)
     if (!validPath) return false
 
-    // Check against known repo paths
-    for (const repoPath of knownRepoPaths) {
-      if (validPath.startsWith(repoPath + '/') || validPath === repoPath) {
-        return true
-      }
-      // Also check sibling directories (worktrees are created as siblings)
-      const repoParent = dirname(repoPath)
-      if (validPath.startsWith(repoParent + '/')) {
-        return true
-      }
+    // Only allow explicitly tracked worktree paths
+    return knownWorktreePaths.has(validPath)
+  }
+
+  /**
+   * Clear tracking for a specific worktree path
+   */
+  untrackWorktreePath(path: string): void {
+    const validPath = validatePath(path)
+    if (validPath) {
+      knownWorktreePaths.delete(validPath)
     }
-    return false
   }
 }
 

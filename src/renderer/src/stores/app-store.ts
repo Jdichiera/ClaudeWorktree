@@ -35,9 +35,18 @@ interface AppState {
   setError: (error: string | null) => void
 }
 
+// Maximum display length for repository name
+const MAX_REPO_NAME_LENGTH = 100
+
 // Generate unique repository ID (browser-compatible)
 function generateRepoId(path: string): string {
   return btoa(path).replace(/[/+=]/g, '_')
+}
+
+// Extract and truncate repository name from path
+function getRepoName(path: string): string {
+  const name = path.split('/').pop() || path
+  return name.slice(0, MAX_REPO_NAME_LENGTH)
 }
 
 // Default session state
@@ -86,7 +95,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const repo: Repository = {
         id: generateRepoId(path),
         path,
-        name: path.split('/').pop() || path,
+        name: getRepoName(path),
         worktrees,
       }
 
