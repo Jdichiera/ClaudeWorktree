@@ -1,10 +1,11 @@
 import { create } from 'zustand'
-import type { Repository, Worktree, Message, ToolCall, SessionStatus, AuthStatus } from '@shared/types'
+import type { Repository, Worktree, Message, ToolCall, SessionStatus, AuthStatus, UsageStats } from '@shared/types'
 
 interface SessionState {
   messages: Message[]
   toolCalls: ToolCall[]
   status: SessionStatus
+  usage: UsageStats | null
 }
 
 interface AppState {
@@ -38,6 +39,7 @@ interface AppState {
   handleAgentMessage: (worktreeId: string, message: Message) => void
   handleAgentToolCall: (worktreeId: string, toolCall: ToolCall) => void
   handleAgentError: (worktreeId: string, error: string) => void
+  handleAgentUsage: (worktreeId: string, usage: UsageStats) => void
 
   setError: (error: string | null) => void
   setSprite: (id: string) => void
@@ -63,6 +65,7 @@ function createDefaultSession(): SessionState {
     messages: [],
     toolCalls: [],
     status: { isActive: false, isProcessing: false },
+    usage: null,
   }
 }
 
@@ -425,6 +428,21 @@ export const useAppStore = create<AppState>((set, get) => ({
           [worktreeId]: {
             ...session,
             status: { isActive: true, isProcessing: false, error },
+          },
+        },
+      }
+    })
+  },
+
+  handleAgentUsage: (worktreeId: string, usage: UsageStats) => {
+    set((state) => {
+      const session = state.sessions[worktreeId] || createDefaultSession()
+      return {
+        sessions: {
+          ...state.sessions,
+          [worktreeId]: {
+            ...session,
+            usage,
           },
         },
       }

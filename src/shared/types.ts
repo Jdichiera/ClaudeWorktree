@@ -21,6 +21,16 @@ export interface SessionStatus {
   error?: string
 }
 
+export interface UsageStats {
+  totalCostUsd: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  totalTurns: number
+  lastDurationMs: number
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant'
@@ -109,6 +119,7 @@ export const IPC_CHANNELS = {
   AGENT_MESSAGE: 'agent:message',
   AGENT_TOOL_CALL: 'agent:tool-call',
   AGENT_ERROR: 'agent:error',
+  AGENT_USAGE: 'agent:usage',
 
   // Dialog
   SHOW_OPEN_DIALOG: 'dialog:open',
@@ -148,6 +159,7 @@ export interface ElectronAPI {
   onAgentMessage: (callback: (worktreeId: string, message: Message) => void) => () => void
   onAgentToolCall: (callback: (worktreeId: string, toolCall: ToolCall) => void) => () => void
   onAgentError: (callback: (worktreeId: string, error: string) => void) => () => void
+  onAgentUsage: (callback: (worktreeId: string, usage: UsageStats) => void) => () => void
   showOpenDialog: () => Promise<string | null>
 }
 

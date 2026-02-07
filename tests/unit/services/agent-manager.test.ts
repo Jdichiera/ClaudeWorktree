@@ -27,6 +27,15 @@ function makeSession(worktreeId = 'wt-1') {
     isProcessing: true,
     messages: [],
     currentMessageId: null,
+    usage: {
+      totalCostUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      totalTurns: 0,
+      lastDurationMs: 0,
+    },
   }
 }
 

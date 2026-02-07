@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { ElectronAPI, Message, ToolCall, BugReportData } from '@shared/types'
+import type { ElectronAPI, Message, ToolCall, BugReportData, UsageStats } from '@shared/types'
 import { IPC_CHANNELS } from '@shared/types'
 
 const electronAPI: ElectronAPI = {
@@ -86,6 +86,16 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.on(IPC_CHANNELS.AGENT_ERROR, handler)
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.AGENT_ERROR, handler)
+    }
+  },
+
+  onAgentUsage: (callback: (worktreeId: string, usage: UsageStats) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, worktreeId: string, usage: UsageStats) => {
+      callback(worktreeId, usage)
+    }
+    ipcRenderer.on(IPC_CHANNELS.AGENT_USAGE, handler)
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.AGENT_USAGE, handler)
     }
   },
 

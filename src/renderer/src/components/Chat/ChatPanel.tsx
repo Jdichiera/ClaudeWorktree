@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { MessageList } from './MessageList'
 import { InputBox } from './InputBox'
+import { UsageBar } from './UsageBar'
 
 export function ChatPanel() {
   const {
@@ -192,6 +193,7 @@ export function ChatPanel() {
       )}
       <MessageList messages={session?.messages || []} isProcessing={session?.status.isProcessing} />
       <InputBox disabled={session?.status.isProcessing || false} />
+      <UsageBar usage={session?.usage ?? null} />
     </div>
   )
 }

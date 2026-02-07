@@ -3,7 +3,7 @@ import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { accessSync, statSync, constants } from 'fs'
 import { resolve, normalize } from 'path'
-import type { SessionStatus, Message, ToolCall } from '@shared/types'
+import type { SessionStatus, Message, ToolCall, UsageStats } from '@shared/types'
 import { IPC_CHANNELS } from '@shared/types'
 import { gitService } from './git-service'
 
@@ -16,6 +16,7 @@ interface AgentSession {
   currentMessageId: string | null
   error?: string
   eventCleanup?: () => void
+  usage: UsageStats
 }
 
 // Security limits
@@ -316,6 +317,15 @@ export class AgentManager {
       isProcessing: false,
       messages: [],
       currentMessageId: null,
+      usage: {
+        totalCostUsd: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        totalTurns: 0,
+        lastDurationMs: 0,
+      },
     })
   }
 
@@ -386,7 +396,7 @@ export class AgentManager {
     session: AgentSession,
     assistantMessage: Message
   ): void {
-    let event: { type: string; subtype?: string; message?: { content: Array<{ type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown>; tool_use_id?: string; content?: unknown }> }; result?: string; total_cost_usd?: number; tool_use_result?: { stdout?: string; stderr?: string; content?: string } }
+    let event: { type: string; subtype?: string; message?: { content: Array<{ type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown>; tool_use_id?: string; content?: unknown }> }; result?: string; total_cost_usd?: number; num_turns?: number; duration_ms?: number; usage?: { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }; tool_use_result?: { stdout?: string; stderr?: string; content?: string } }
     try {
       event = JSON.parse(line)
     } catch {
@@ -461,6 +471,24 @@ export class AgentManager {
         }
         assistantMessage.isStreaming = false
         this.emitMessage(session.worktreeId, assistantMessage)
+
+        // Accumulate usage statistics
+        if (event.usage) {
+          session.usage.inputTokens += event.usage.input_tokens ?? 0
+          session.usage.outputTokens += event.usage.output_tokens ?? 0
+          session.usage.cacheCreationInputTokens += event.usage.cache_creation_input_tokens ?? 0
+          session.usage.cacheReadInputTokens += event.usage.cache_read_input_tokens ?? 0
+        }
+        if (typeof event.total_cost_usd === 'number') {
+          session.usage.totalCostUsd = event.total_cost_usd
+        }
+        if (typeof event.num_turns === 'number') {
+          session.usage.totalTurns += event.num_turns
+        }
+        if (typeof event.duration_ms === 'number') {
+          session.usage.lastDurationMs = event.duration_ms
+        }
+        this.emitUsage(session.worktreeId, session.usage)
         break
       }
 
@@ -679,6 +707,10 @@ export class AgentManager {
 
   private emitError(worktreeId: string, error: string): void {
     this.mainWindow?.webContents.send(IPC_CHANNELS.AGENT_ERROR, worktreeId, error)
+  }
+
+  private emitUsage(worktreeId: string, usage: UsageStats): void {
+    this.mainWindow?.webContents.send(IPC_CHANNELS.AGENT_USAGE, worktreeId, { ...usage })
   }
 }
 

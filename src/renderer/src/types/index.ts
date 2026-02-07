@@ -13,4 +13,5 @@ export type {
   AuthStatus,
   BugReportData,
   BugReportResult,
+  UsageStats,
 } from '@shared/types'

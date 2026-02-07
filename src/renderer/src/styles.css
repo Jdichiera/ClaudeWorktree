@@ -986,3 +986,39 @@ body {
 .bug-report-link:hover {
   color: var(--accent-hover);
 }
+
+/* Usage Bar */
+.usage-bar {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+  padding: 0 var(--spacing-lg);
+  background-color: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.usage-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.usage-context-bar-track {
+  width: 60px;
+  height: 4px;
+  background-color: var(--bg-hover);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.usage-context-bar-fill {
+  height: 100%;
+  background-color: var(--accent-primary);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
