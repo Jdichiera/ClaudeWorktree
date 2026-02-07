@@ -4,9 +4,10 @@ import type { Message as MessageType } from '../../types'
 
 interface MessageListProps {
   messages: MessageType[]
+  isProcessing?: boolean
 }
 
-export function MessageList({ messages }: MessageListProps) {
+export function MessageList({ messages, isProcessing }: MessageListProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const isAtBottomRef = useRef(true)
 
@@ -23,12 +24,12 @@ export function MessageList({ messages }: MessageListProps) {
     isAtBottomRef.current = checkIfAtBottom()
   }, [checkIfAtBottom])
 
-  // Auto-scroll to bottom when new messages arrive, but only if already at bottom
+  // Auto-scroll to bottom when new messages arrive or processing state changes, but only if already at bottom
   useEffect(() => {
     if (listRef.current && isAtBottomRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight
     }
-  }, [messages])
+  }, [messages, isProcessing])
 
   // When messages array length changes (new message added), scroll to bottom
   const prevLengthRef = useRef(messages.length)
@@ -82,6 +83,12 @@ export function MessageList({ messages }: MessageListProps) {
       {messages.map((message) => (
         <Message key={message.id} message={message} />
       ))}
+      {isProcessing && (
+        <div className="thinking-indicator">
+          <span className="thinking-chevron">›</span>
+          <span className="thinking-cursor" />
+        </div>
+      )}
     </div>
   )
 }

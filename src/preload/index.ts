@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { ElectronAPI, Message, ToolCall } from '@shared/types'
+import type { ElectronAPI, Message, ToolCall, BugReportData } from '@shared/types'
 import { IPC_CHANNELS } from '@shared/types'
 
 const electronAPI: ElectronAPI = {
@@ -38,6 +38,12 @@ const electronAPI: ElectronAPI = {
 
     removeSession: (worktreeId: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_REMOVE_SESSION, worktreeId),
+
+    checkAuth: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_CHECK_AUTH),
+
+    openLoginTerminal: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_OPEN_LOGIN_TERMINAL),
   },
 
   dialog: {
@@ -46,6 +52,11 @@ const electronAPI: ElectronAPI = {
 
     alert: (message: string, title?: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.SHOW_ALERT_DIALOG, message, title),
+  },
+
+  bugReport: {
+    submit: (data: BugReportData) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BUG_REPORT_SUBMIT, data),
   },
 
   onAgentMessage: (callback: (worktreeId: string, message: Message) => void) => {

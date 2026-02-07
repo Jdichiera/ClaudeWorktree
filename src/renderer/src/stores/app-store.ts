@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Repository, Worktree, Message, ToolCall, SessionStatus } from '@shared/types'
+import type { Repository, Worktree, Message, ToolCall, SessionStatus, AuthStatus } from '@shared/types'
 
 interface SessionState {
   messages: Message[]
@@ -14,6 +14,9 @@ interface AppState {
   sessions: Record<string, SessionState>
   isLoading: boolean
   error: string | null
+  authStatus: AuthStatus | null
+  authChecking: boolean
+  selectedSprite: string
 
   // Actions
   addRepository: (path: string) => Promise<void>
@@ -27,12 +30,17 @@ interface AppState {
   sendMessage: (message: string) => Promise<void>
   abortAgent: () => Promise<void>
 
+  // Auth actions
+  checkAuth: () => Promise<void>
+  openLoginTerminal: () => Promise<void>
+
   // Internal actions for handling IPC events
   handleAgentMessage: (worktreeId: string, message: Message) => void
   handleAgentToolCall: (worktreeId: string, toolCall: ToolCall) => void
   handleAgentError: (worktreeId: string, error: string) => void
 
   setError: (error: string | null) => void
+  setSprite: (id: string) => void
 }
 
 // Maximum display length for repository name
@@ -68,6 +76,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   sessions: {},
   isLoading: false,
   error: null,
+  authStatus: null,
+  authChecking: false,
+  selectedSprite: 'brain',
 
   // Actions
   addRepository: async (path: string) => {
@@ -317,6 +328,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  // Auth actions
+  checkAuth: async () => {
+    set({ authChecking: true })
+    try {
+      const status = await window.electronAPI.agent.checkAuth()
+      set({ authStatus: status, authChecking: false })
+    } catch (error) {
+      set({
+        authStatus: {
+          installed: false,
+          authenticated: false,
+          error: error instanceof Error ? error.message : 'Failed to check auth status',
+        },
+        authChecking: false,
+      })
+    }
+  },
+
+  openLoginTerminal: async () => {
+    try {
+      await window.electronAPI.agent.openLoginTerminal()
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : 'Failed to open terminal' })
+    }
+  },
+
   // IPC event handlers
   handleAgentMessage: (worktreeId: string, message: Message) => {
     set((state) => {
@@ -341,7 +378,10 @@ export const useAppStore = create<AppState>((set, get) => ({
             messages: updatedMessages,
             status: {
               ...session.status,
-              isProcessing: message.isStreaming || false,
+              // Only assistant messages control the processing state
+              ...(message.role === 'assistant'
+                ? { isProcessing: message.isStreaming || false }
+                : {}),
             },
           },
         },
@@ -393,5 +433,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setError: (error: string | null) => {
     set({ error })
+  },
+
+  setSprite: (id: string) => {
+    set({ selectedSprite: id })
   },
 }))

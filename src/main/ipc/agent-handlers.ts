@@ -57,4 +57,15 @@ export function setupAgentHandlers(mainWindow: BrowserWindow): void {
     await agentManager.removeSession(validWorktreeId)
     return { success: true }
   })
+
+  // Check authentication status
+  ipcMain.handle(IPC_CHANNELS.AGENT_CHECK_AUTH, async () => {
+    return agentManager.checkAuth()
+  })
+
+  // Open terminal for login
+  ipcMain.handle(IPC_CHANNELS.AGENT_OPEN_LOGIN_TERMINAL, async () => {
+    agentManager.openLoginTerminal()
+    return { success: true }
+  })
 }

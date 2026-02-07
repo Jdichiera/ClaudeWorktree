@@ -66,6 +66,26 @@ export interface SDKEvent {
   data: unknown
 }
 
+// Auth check result
+export interface AuthStatus {
+  installed: boolean
+  authenticated: boolean
+  claudePath?: string
+  error?: string
+}
+
+// Bug report types
+export interface BugReportData {
+  description: string
+  screenshotDataUrl?: string
+}
+
+export interface BugReportResult {
+  success: boolean
+  issueUrl?: string
+  error?: string
+}
+
 // IPC Channel names
 export const IPC_CHANNELS = {
   // Git operations
@@ -82,6 +102,8 @@ export const IPC_CHANNELS = {
   AGENT_ABORT: 'agent:abort',
   AGENT_GET_STATUS: 'agent:get-status',
   AGENT_REMOVE_SESSION: 'agent:remove-session',
+  AGENT_CHECK_AUTH: 'agent:check-auth',
+  AGENT_OPEN_LOGIN_TERMINAL: 'agent:open-login-terminal',
 
   // Agent events (main -> renderer)
   AGENT_MESSAGE: 'agent:message',
@@ -92,6 +114,9 @@ export const IPC_CHANNELS = {
   SHOW_OPEN_DIALOG: 'dialog:open',
   SHOW_CONFIRM_DIALOG: 'dialog:confirm',
   SHOW_ALERT_DIALOG: 'dialog:alert',
+
+  // Bug report
+  BUG_REPORT_SUBMIT: 'bug-report:submit',
 } as const
 
 // Electron API exposed via preload
@@ -110,10 +135,15 @@ export interface ElectronAPI {
     abort: (worktreeId: string) => Promise<void>
     getStatus: (worktreeId: string) => Promise<SessionStatus>
     removeSession: (worktreeId: string) => Promise<void>
+    checkAuth: () => Promise<AuthStatus>
+    openLoginTerminal: () => Promise<void>
   }
   dialog: {
     confirm: (message: string, title?: string) => Promise<boolean>
     alert: (message: string, title?: string) => Promise<void>
+  }
+  bugReport: {
+    submit: (data: BugReportData) => Promise<BugReportResult>
   }
   onAgentMessage: (callback: (worktreeId: string, message: Message) => void) => () => void
   onAgentToolCall: (callback: (worktreeId: string, toolCall: ToolCall) => void) => () => void

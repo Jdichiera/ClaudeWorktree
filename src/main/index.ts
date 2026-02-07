@@ -4,6 +4,7 @@ import { URL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupGitHandlers } from './ipc/git-handlers'
 import { setupAgentHandlers } from './ipc/agent-handlers'
+import { setupBugReportHandlers } from './ipc/bug-report-handlers'
 import { agentManager } from './services/agent-manager'
 
 let mainWindow: BrowserWindow | null = null
@@ -85,6 +86,7 @@ function createWindow(): void {
   // Setup IPC handlers
   setupGitHandlers()
   setupAgentHandlers(mainWindow)
+  setupBugReportHandlers()
 }
 
 // App lifecycle

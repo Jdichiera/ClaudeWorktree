@@ -10,4 +10,7 @@ export type {
   SDKEvent,
   SDKEventType,
   ElectronAPI,
+  AuthStatus,
+  BugReportData,
+  BugReportResult,
 } from '@shared/types'

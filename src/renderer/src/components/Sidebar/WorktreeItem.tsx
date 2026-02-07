@@ -1,5 +1,6 @@
 import { useAppStore } from '../../stores/app-store'
 import type { Worktree } from '../../types'
+import { SpriteIcon } from './SpriteIcon'
 
 interface WorktreeItemProps {
   worktree: Worktree
@@ -62,18 +63,7 @@ export function WorktreeItem({ worktree, repoPath }: WorktreeItemProps) {
 
       <span className="worktree-branch">{worktree.branch}</span>
 
-      <div
-        className={`worktree-status ${worktree.hasChanges ? 'has-changes' : ''} ${
-          isProcessing ? 'processing' : ''
-        }`}
-        title={
-          isProcessing
-            ? 'Processing'
-            : worktree.hasChanges
-              ? 'Uncommitted changes'
-              : 'Clean'
-        }
-      />
+      <SpriteIcon isWorking={isProcessing} />
 
       {!worktree.isMain && (
         <button

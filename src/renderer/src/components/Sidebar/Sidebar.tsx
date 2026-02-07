@@ -1,8 +1,11 @@
+import { useState } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { RepoSection } from './RepoSection'
+import { BugReportModal } from '../BugReport/BugReportModal'
 
 export function Sidebar() {
   const { repositories, isLoading, error, setError } = useAppStore()
+  const [showBugReport, setShowBugReport] = useState(false)
 
   const handleOpenRepository = async () => {
     try {
@@ -112,6 +115,33 @@ export function Sidebar() {
           repositories.map((repo) => <RepoSection key={repo.id} repository={repo} />)
         )}
       </div>
+
+      <div className="sidebar-footer">
+        <button
+          className="btn-icon sidebar-footer-btn"
+          onClick={() => setShowBugReport(true)}
+          title="Report a Bug"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M12 9V13M12 17H12.01M8.68 4H15.32L20 8.68V15.32L15.32 20H8.68L4 15.32V8.68L8.68 4Z"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span>Report a Bug</span>
+        </button>
+      </div>
+
+      <BugReportModal isOpen={showBugReport} onClose={() => setShowBugReport(false)} />
     </div>
   )
 }

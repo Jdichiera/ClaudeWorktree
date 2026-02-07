@@ -1,3 +1,4 @@
+import React from 'react'
 import type { Message as MessageType } from '../../types'
 
 interface MessageProps {
@@ -16,7 +17,7 @@ export function Message({ message }: MessageProps) {
 }
 
 // Simple markdown-like formatting
-function formatContent(content: string): JSX.Element {
+function formatContent(content: string): React.JSX.Element {
   // Split by code blocks
   const parts = content.split(/(```[\s\S]*?```)/g)
 
